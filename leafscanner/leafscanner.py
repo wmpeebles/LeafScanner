@@ -8,6 +8,7 @@ import cv2
 import time
 import gc
 
+
 class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -15,19 +16,24 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
+
 class LeafScanner:
     def __init__(self):
         self.app = self.setup_app()
         self.window = MainWindow()
 
+        self.fields = None
+        self.get_field_names()
         self.field_name = self.window.ui.field_name_combo.currentText()
-        
+
+        self.datasheet = None
+        self.datasheet_index = 0
+        self.get_templates()
+        self.load_template()
         self.date = datetime.datetime.now().strftime("%Y-%m-%d")
         self.data_path, self.field_path, self.date_path = self.setup_data_directories(self.field_name, self.date)
 
-        self.datasheet = None
-        self.load_datasheet()
-        self.datasheet_index = 0
+
         self.plot = None
         self.plant = None
         self.scan = None
@@ -39,15 +45,16 @@ class LeafScanner:
         self.scan_path = None
 
         # Make sure there are no existing files in this directory
-
         self.new_scan_path = os.path.join(self.date_path, self.sample_id + '.png')
 
-        self.window.ui.harvest_combo.currentIndexChanged.connect(self.load_datasheet)
+        self.window.ui.harvest_combo.currentIndexChanged.connect(self.load_template)
 
+        self.window.ui.field_name_combo.currentIndexChanged.connect(self.sample_changed)
         self.window.ui.harvest_combo.currentIndexChanged.connect(self.sample_changed)
         self.window.ui.plot_spin.valueChanged.connect(self.sample_changed)
         self.window.ui.plant_spin.valueChanged.connect(self.sample_changed)
         self.window.ui.scan_spin.valueChanged.connect(self.sample_changed)
+
         self.window.ui.next_plant.clicked.connect(self.next_plant)
         self.window.ui.next_scan.clicked.connect(self.next_scan)
         self.window.ui.delete_scan.clicked.connect(self.delete_message)
@@ -56,16 +63,13 @@ class LeafScanner:
         self.window.ui.pixmap = QtWidgets.QGraphicsPixmapItem()
         self.window.ui.scan_view.setScene(self.window.ui.scan_scene)
 
-
         self.scan_checking_thread = QtCore.QThread()
         self.scan_checker = ScanChecker(self.scan_dir)
         self.scan_checker.moveToThread(self.scan_checking_thread)
-        #self.scan_checker.new_scan_detected.connect(self.scan_checking_thread.quit)
         self.scan_checker.new_scan_detected.connect(self.process_scan)
         self.scan_checking_thread.start()
 
         self.scan_checking_timer = QtCore.QTimer(interval=1000, timeout=self.scan_checker.check_for_new_scan)
-        # self.scan_checking_timer = QtCore.QTimer(interval=1000, timeout=self.check_for_new_scan)
         self.scan_checking_timer.start()
 
         self.initial_image_loaded = False
@@ -73,10 +77,8 @@ class LeafScanner:
         self.load_initial_image_timer.start()
 
         self.pix_map = None
-        #self.scan_processing_thread = QtCore.QThread()
-        #self.scan_processing_timer = QtCore.QTimer(interval=2000, timeout=self.process_scan)
-        #self.scan_processing_timer.start()
-        #
+
+        self.sample_changed()
 
     @staticmethod
     def setup_app():
@@ -94,7 +96,6 @@ class LeafScanner:
             self.sample_changed()
             self.initial_image_loaded = True
             self.load_initial_image_timer.stop()
-
 
     def setup_data_directories(self, field_name, date):
         if not os.path.exists('scan_dir'):
@@ -114,11 +115,18 @@ class LeafScanner:
 
         return data_path, field_path, date_path
 
-    def load_datasheet(self):
-        sheet_number = self.window.ui.harvest_combo.currentText()
-        file_name = f'leaf_harvest_date_{sheet_number}.xlsx'
-        file_path = os.path.join(self.field_path, 'datasheets', file_name)
-        df = pd.read_excel(file_path)
+    def get_field_names(self):
+        df = pd.read_csv('fields.csv')
+        self.fields = df['field']
+        self.window.ui.field_name_combo.addItems(self.fields)
+
+    def get_templates(self):
+        templates = [file for file in os.listdir('templates') if file.endswith('.csv')]
+        self.window.ui.harvest_combo.addItems(templates)
+
+    def load_template(self):
+        template = self.window.ui.harvest_combo.currentText()
+        df = pd.read_csv(os.path.join('templates', template))
 
         self.plot = int(df['plot'][0])
         self.plant = int(df['plant'][0])
@@ -131,7 +139,6 @@ class LeafScanner:
         self.datasheet = df
 
     def process_scan(self):
-
         self.scan_checking_timer.stop()
 
         while True:
@@ -146,7 +153,6 @@ class LeafScanner:
         for file in files:
             file_path = os.path.join(self.scan_dir, file)
             self.scan_path = file_path
-
 
         # Since file may not be done writing to the directory before attempting to read it
         # Try reading file and transposing it... reading only give warning, but transpose will raise error
@@ -163,7 +169,6 @@ class LeafScanner:
                 flipped = None
 
                 gc.collect()
-
 
                 self.write_scan()
                 os.remove(self.scan_path)
@@ -193,8 +198,6 @@ class LeafScanner:
             written = cv2.imwrite(new_path, self.scan_image)
             print(f'Written: {written}')
 
-
-
     def show_scan(self):
         print('Show scan started')
 
@@ -216,14 +219,7 @@ class LeafScanner:
         self.window.ui.pixmap.setPixmap(self.pix_map)
         self.window.ui.scan_scene.addItem(self.window.ui.pixmap)
 
-        if self.scan == 1:
-            scan_type = 'Sheath Scan'
-        elif self.scan >= 2:
-            scan_type = 'Leaf Scan'
-        else:
-            scan_type = ''
-
-        self.window.ui.scan_scene.addText(f'Plot: {self.plot}, Plant: {self.plant}, Scan: {self.scan} ({scan_type})',
+        self.window.ui.scan_scene.addText(f'Plot: {self.plot}, Plant: {self.plant}, Scan: {self.scan}',
                                           QtGui.QFont('Helvetica', 35, QtGui.QFont.Light)).setDefaultTextColor(
             QtGui.QColor.fromRgb(255, 255, 255))
         print('Show scan almost finished')
@@ -317,7 +313,7 @@ class LeafScanner:
             self.scan_image = cv2.imread(self.new_scan_path)
             self.window.ui.delete_scan.setVisible(True)
         else:
-            self.scan_image = np.zeros((960, 1360, 3), dtype=np.uint8) # Does this need to be full size? (9600, 13600, 3)
+            self.scan_image = np.zeros((960, 1360, 3), dtype=np.uint8)  # Does this need to be full size? (9600, 13600, 3)
             self.window.ui.delete_scan.setVisible(False)
         self.show_scan()
 
