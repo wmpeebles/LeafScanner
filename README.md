@@ -17,7 +17,7 @@ The scan in the above image will be saved with this file name:
 # Typical Workflow
 
 1. Create a template csv file with the number of rows corresponding to the number of 
-plants to be scannerd. This file should have the column names 'plot' and 'plant', 
+plants to be scanned. This file should have the column names 'plot' and 'plant', 
 and entries with integers as the plot and plant ids. An example
 is [leafscanner/templates/3_plots_10_plants_per_plot.csv](leafscanner/templates/3_plots_10_plants_per_plot.csv)
 2. Add a field name to [leafscanner/fields.csv](leafscanner/fields.csv). The default field name is 'field'.
